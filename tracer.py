@@ -3,7 +3,6 @@ from collections import defaultdict
 import os
 import warnings
 
-import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 import numexpr as ne
@@ -25,24 +24,24 @@ def refract(normal, d_in, n_in, n_out):
     Refracts rays using Snell's Law
 
     Params:
-        normal (`np.ndarray`): [NN, 3] normalized, point toward incident rays
-        d_in (`np.ndarray`): [NN, 3] normalized, directions of incident rays
+        normal (`np.ndarray`): [NN, 2] normalized, point toward incident rays
+        d_in (`np.ndarray`): [NN, 2] normalized, directions of incident rays
         n_in (`float`): index refraction in medium where rays are
         n_out (`float`): "" where rays are going
     
     Returns:
-        `np.ndarray`: [NN, 3] normalized, directions of outgoing rays
+        `np.ndarray`: [NN, 2] normalized, directions of outgoing rays
     """
     d_perp = d_in - ne.evaluate('sum(d_in * normal, axis=1)')[..., None] * normal
     d_perp_norm = np.sqrt(ne.evaluate('sum(d_perp ** 2, axis=1)'))[..., None]  # [NN, 1]
     e_perp_norm = ne.evaluate('n_in / n_out * d_perp_norm')  # [NN, 1]
     e_n_norm = np.sqrt(1 - e_perp_norm ** 2)  # [NN, 1]
-    e_n_grid = ne.evaluate('-normal * e_n_norm')  # [NN, 3]
+    e_n_grid = ne.evaluate('-normal * e_n_norm')  # [NN, 2]
     warnings.filterwarnings('ignore')
-    e_perp_grid = ne.evaluate('d_perp / d_perp_norm * e_perp_norm') # [NN, 3]
+    e_perp_grid = ne.evaluate('d_perp / d_perp_norm * e_perp_norm') # [NN, 2]
     warnings.filterwarnings('default')
     e_perp_grid[d_perp_norm[..., 0] == 0] = 0
-    e_grid = e_n_grid + e_perp_grid  # [NN, 3]
+    e_grid = e_n_grid + e_perp_grid  # [NN, 2]
     return e_grid
 
 def intersect_sphere(ctr, rad, ori, dir, plus):
@@ -53,10 +52,10 @@ def intersect_sphere(ctr, rad, ori, dir, plus):
         || (o + t * d) - c ||^2 = r^2
 
     Params:
-        ctr (`np.ndarray`): [3, ] center of sphere
+        ctr (`np.ndarray`): [2, ] center of sphere
         rad (`float`): radius of sphere
-        ori (`np.ndarray`): must broadcast with [NN, 3], ray origins
-        dir (`np.ndarray`): [NN, 3] ray directions
+        ori (`np.ndarray`): must broadcast with [NN, 2], ray origins
+        dir (`np.ndarray`): [NN, 2] ray directions
         plus (`bool`): use plus or minus in quadratic formula
 
     Returns:
@@ -81,57 +80,50 @@ def trace_biconvex(D1, R1, T, R2, D2, O, lam=500, N=15, M=101, h=35):
 
     # set up the lenses and compute angle bound
     n_lam = n_BK7(lam / 1000)
-    c1 = np.array([0, 0, D2 + T - R1])
-    c2 = np.array([0, 0, D2 + R2])
+    c1 = np.array([0, D2 + T - R1])
+    c2 = np.array([0, D2 + R2])
     theta_max = np.arctan2(O, 2 * (D1 + T1))
 
     # rays to trace. This will produce extraneous rays that don't hit the sensor
-    s = np.array([0, 0, D1 + T + D2])
+    s = np.array([0, D1 + T + D2])
     thetas = -theta_max + 2 * theta_max / (N - 1) * np.arange(N)
-    thetas_grid_x, thetas_grid_y = np.meshgrid(thetas, thetas)
     d_grid = np.stack(
         [
-            np.sin(thetas_grid_x),
-            -np.cos(thetas_grid_x) * np.sin(thetas_grid_y),
-            -np.cos(thetas_grid_x) * np.cos(thetas_grid_y)
+            np.sin(thetas),
+            -np.cos(thetas)
         ],
         axis=-1
-    )  # [N, N, 3]
+    )  # [N, N, 2]
     # pare them down
-    hit_lens = d_grid @ [0, 0, -1] > np.cos(theta_max)  # [N, N]
-    d_grid = d_grid[hit_lens]  # [NN, 3]
+    hit_lens = d_grid @ [0, -1] > np.cos(theta_max)  # [N, N]
+    d_grid = d_grid[hit_lens]  # [NN, 2]
 
     # source to first intersection
     t_grid = intersect_sphere(c1, R1, s, d_grid, False)  # [NN]
-    x1_grid = s + t_grid[..., None] * d_grid  # [NN, 3]
+    x1_grid = s + t_grid[..., None] * d_grid  # [NN, 2]
 
     # first refracction
     n1_grid = x1_grid - c1
     n1_grid = n1_grid / np.linalg.norm(n1_grid, axis=-1, keepdims=1)
-    e_grid = refract(n1_grid, d_grid, N_AIR, n_lam)  # [NN, 3]
+    e_grid = refract(n1_grid, d_grid, N_AIR, n_lam)  # [NN, 2]
 
     # second intersection
     u_grid = intersect_sphere(c2, R2, x1_grid, e_grid, True)  # [NN]
-    x2_grid = x1_grid + u_grid[..., None] * e_grid  # [NN, 3]
+    x2_grid = x1_grid + u_grid[..., None] * e_grid  # [NN, 2]
     # check validity
-    valid = (x2_grid[..., 2] <= D2 + T2) & (np.linalg.norm(x2_grid[..., :2], axis=-1) <= O / 2)
+    valid = (x2_grid[..., -1] <= D2 + T2) & (np.linalg.norm(x2_grid[..., :-1], axis=-1) <= O / 2)
     x2_grid[~valid] = np.nan
     
-    ## debugging
-    #plt.figure()
-    #plt.scatter(x2_grid[:,0], x2_grid[:,1])
-    #plt.show()
-
     # second refraction
     n2_grid = c2 - x2_grid
     n2_grid = n2_grid / np.linalg.norm(n2_grid, axis=-1, keepdims=1)
-    f_grid = refract(n2_grid, e_grid, n_lam, N_AIR)  # [NN, 3]
+    f_grid = refract(n2_grid, e_grid, n_lam, N_AIR)  # [NN, 2]
 
     # hitting home
-    v_grid = -x2_grid[..., 2:] / f_grid[..., 2:]  # [NN, 1]
-    xy_grid = x2_grid[..., :2] + v_grid * f_grid[..., :2]  # [NN, 2] in mm
+    v_grid = -x2_grid[..., -1:] / f_grid[..., -1:]  # [NN, 1]
+    xy_grid = x2_grid[..., :-1] + v_grid * f_grid[..., :-1]  # [NN, 2] in mm
     # count up rays in each pixel
-    ij_grid = ((xy_grid + [h/2, h/2]) * M / h)
+    ij_grid = ((xy_grid + [h/2]) * M / h)
     # skip rays that don't hit sensor or exited the lens earlier (nan's)
     warnings.filterwarnings('ignore')
     inbounds = np.all((ij_grid >= 0) & (ij_grid < M), axis=-1)
@@ -140,9 +132,13 @@ def trace_biconvex(D1, R1, T, R2, D2, O, lam=500, N=15, M=101, h=35):
     for ij in ij_grid[inbounds]:
         ij = ij.astype(np.int)
         accum[tuple(ij)] += 1
-    image = np.zeros([M, M], dtype=np.uint64)
+    line = np.zeros([M], dtype=np.uint64)
     for ij, val in accum.items():
-        image[tuple(ij)] = val
+        line[tuple(ij)] = val
+    dist = np.linspace(-M/2, M/2, M)
+    image_dist_x, image_dist_y = np.meshgrid(dist, dist)
+    image_dist = np.sqrt(image_dist_x ** 2 + image_dist_y ** 2)
+    image = np.interp(image_dist, np.arange(M // 2 + (M % 2)), line[M // 2:])
     return image
 
 
