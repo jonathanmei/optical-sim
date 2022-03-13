@@ -70,6 +70,22 @@ def intersect_sphere(ctr, rad, ori, dir, plus):
 
 def trace_biconvex(D1, R1, T, R2, D2, O, lam=500, N=15, M=101, h=35):
     """
+    Ray tracing from an on-axis point source through single binconvex BK7 lens to square sensor
+
+    Params:
+        D1 (`float`): distance from point source to its nearest point on lens [mm]
+        R1 (`float`): radius of curvature of side facing source [mm]
+        T (`float`): center thickness of lens [mm]
+        R2 (`float`): radius of curvature of side facing sensor [mm]
+        D2 (`float`): distance between sensor and its nearest point on lens [mm]
+        O (`float`): diameter of the lens [mm]
+        lam (`float`): wavelength of light [nm]
+        N (`int`): number of rays to sample along one dimension
+        M (`int`): sensor width [pixels] (i.e. M x M)
+        h (`float`): sensor width [mm] (i.e. h x h)
+    
+    Returns:
+        `np.ndarray` [N, N] forward-simulated PSF of the optical setup
     """
 
     # quick sanity checks
