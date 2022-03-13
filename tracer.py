@@ -70,7 +70,7 @@ def intersect_sphere(ctr, rad, ori, dir, plus):
 
 def trace_biconvex(D1, R1, T, R2, D2, O, lam=500, N=15, M=101, h=35):
     """
-    Ray tracing from an on-axis point source through single binconvex BK7 lens to square sensor
+    Ray tracing from an on-axis point source through single biconvex BK7 lens to square sensor
 
     Params:
         D1 (`float`): distance from point source to its nearest point on lens [mm]
@@ -144,6 +144,8 @@ def trace_biconvex(D1, R1, T, R2, D2, O, lam=500, N=15, M=101, h=35):
     warnings.filterwarnings('ignore')
     inbounds = np.all((ij_grid >= 0) & (ij_grid < M), axis=-1)
     warnings.filterwarnings('default')
+
+    # accumulating in a dict first can be sliiightly faster than accessing the np.array directly
     accum = defaultdict(int)
     for ij in ij_grid[inbounds]:
         ij = ij.astype(np.int)
@@ -154,6 +156,7 @@ def trace_biconvex(D1, R1, T, R2, D2, O, lam=500, N=15, M=101, h=35):
     dist = np.linspace(-M/2, M/2, M)
     image_dist_x, image_dist_y = np.meshgrid(dist, dist)
     image_dist = np.sqrt(image_dist_x ** 2 + image_dist_y ** 2)
+    # Nb: This only really works if the entire PSF fits well within the sensor width
     image = np.interp(image_dist, np.arange(M // 2 + (M % 2)), line[M // 2:])
     return image
 
